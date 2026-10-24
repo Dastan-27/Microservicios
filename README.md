@@ -1,134 +1,118 @@
-# Coworking Workshop
+# Coworking Serverless - Migración Event-Driven (Clase 3)
 
-Laboratorio de microservicios con FastAPI: un catálogo de espacios, un servicio de órdenes que consulta el catálogo por HTTP, Docker Compose y experimentos de resiliencia.
+Laboratorio de microservicios migrado a arquitectura Serverless dirigida por eventos (Event-Driven Architecture) con AWS SAM, API Gateway, AWS Lambda, Amazon EventBridge y Amazon SQS.
 
-## Estructura
+---
+
+## 📐 Arquitectura
+
+```text
+[ Cliente HTTP / curl ]
+          │
+          ▼
+   API Gateway (/catalog o /spaces)
+          │
+          ▼
+   Lambda: catalog-fn (LAB 6)
+          │  (Publica evento 'SpaceChanged' con boto3)
+          ▼
+      EventBridge (default bus)
+          │  (Regla de filtrado: coworking.catalog / SpaceChanged)
+          ▼
+   SQS: catalog-events
+          │  (Desencadenador de evento / polling)
+          ▼
+   Lambda: consumer-fn (LAB 7)
+          │  (POST /catalog-events)
+          ▼
+     orders-service (FastAPI / ECS)
+```
+
+---
+
+## 📁 Estructura del Proyecto
 
 ```text
 .
-├── README.md
-├── docker-compose.yml
-├── chaos-test.sh
-├── chaos-report.md
-├── architecture-diagram.svg
-├── coworking.postman_collection.json
-├── catalog-service/
+├── template.yaml                  # Plantilla AWS SAM (Infraestructura como Código)
+├── docker-compose.yml             # LocalStack (AWS local gratuito) + orders-service
+├── lambda-catalog/                # LAB 6: Lambda catalog-service
+│   ├── handler.py
+│   └── requirements.txt
+├── lambda-consumer/               # LAB 7: Lambda consumidor de eventos SQS
+│   ├── handler.py
+│   └── requirements.txt
+├── orders-service/                # Servicio de órdenes en FastAPI
 │   ├── main.py
 │   ├── requirements.txt
 │   └── Dockerfile
-└── orders-service/
-    ├── main.py
-    ├── requirements.txt
-    └── Dockerfile
+└── coworking.postman_collection.json
 ```
 
-## Servicios y API
+---
 
-| Servicio | Puerto | Rutas |
-| --- | ---: | --- |
-| `catalog-service` | 8001 | `GET /health`, `GET /spaces`, `GET /spaces/{space_id}` |
-| `orders-service` | 8002 | `GET /health`, `POST /orders`, `GET /orders` |
+## 🚀 Despliegue 100% Gratuito y Local (Sin Cuenta de AWS)
 
-El catálogo contiene tres espacios de ejemplo. Las órdenes se guardan en memoria y se pierden al reiniciar `orders-service`.
+Para no gastar dinero ni ingresar tarjetas en AWS, usamos **LocalStack** para emular API Gateway, Lambda, EventBridge y SQS en tu máquina con Docker.
 
-### Ejecutar localmente
-
-En dos terminales, desde la raíz del proyecto:
+### 1. Iniciar el entorno local
 
 ```bash
-cd catalog-service
-pip install -r requirements.txt
-python main.py
+docker compose up -d
 ```
+
+### 2. Construir la plantilla SAM
 
 ```bash
-cd orders-service
-pip install -r requirements.txt
-python main.py
+sam build
 ```
 
-Al ejecutar `orders-service` fuera de Docker, el catálogo debe estar disponible en `http://localhost:8001`. Puedes configurar otro destino mediante `CATALOG_SERVICE_URL`.
+### 3. Desplegar en LocalStack
 
-Prueba las rutas:
+Usando `samlocal` (wrapper gratuito de SAM para LocalStack):
 
 ```bash
-curl http://localhost:8001/health
-curl http://localhost:8001/spaces
-curl http://localhost:8001/spaces/1
-curl -X POST "http://localhost:8002/orders?space_id=1&user_email=test@example.com&hours=2"
-curl http://localhost:8002/orders
+pip install aws-sam-cli-local
+samlocal deploy --stack-name coworking-serverless --resolve-s3
 ```
 
-La creación de una orden consulta el espacio en el catálogo y calcula `total_price`. Si el catálogo no responde, la orden devuelve HTTP `503`; si devuelve un espacio con un contrato incompatible, devuelve HTTP `502`.
+---
 
-## Docker Compose
+## 🧪 Pruebas del Flujo Event-Driven
 
-Desde la raíz del proyecto:
+### 1. Consultar espacios (vía API Gateway / Lambda)
 
 ```bash
-docker compose up --build
+curl http://localhost:4566/_aws/execute-api/catalog
 ```
 
-Compose crea una red compartida (`coworking_coworking-network`) y configura `orders-service` para llamar al host interno `catalog-service:8001`. El servicio de órdenes espera a que el healthcheck del catálogo pase antes de iniciar.
-
-En otra terminal:
+### 2. Actualizar disponibilidad (dispara evento a EventBridge)
 
 ```bash
-curl http://localhost:8001/spaces
-curl -X POST "http://localhost:8002/orders?space_id=1&user_email=test@example.com&hours=2"
-curl http://localhost:8002/orders
+curl -X POST "http://localhost:4566/_aws/execute-api/catalog/1/availability" \
+  -H "Content-Type: application/json" \
+  -d '{"capacity": 15}'
 ```
 
-Para detener los contenedores:
+**Lo que sucede por debajo:**
+1. `catalog-fn` recibe la petición y emite `SpaceChanged` a **EventBridge**.
+2. EventBridge filtra el evento y lo deposita en la cola **SQS** `catalog-events`.
+3. `consumer-fn` se despierta automáticamente al recibir el mensaje de SQS.
+4. `consumer-fn` notifica a `orders-service` en `http://localhost:8002/catalog-events`.
+
+### 3. Verificar en orders-service la sincronización del evento
 
 ```bash
-docker compose down
+curl http://localhost:8002/spaces-cache
 ```
 
-## Lab 4: caída del catálogo
+---
 
-Con los contenedores levantados, ejecuta desde Bash, WSL o Git Bash:
+## ☁️ Despliegue en AWS Real (Opcional)
+
+Si más adelante cuentas con acceso a AWS (o AWS Academy / Learner Lab):
 
 ```bash
-chmod +x chaos-test.sh
-./chaos-test.sh
+sam build
+sam deploy --guided
 ```
-
-El script verifica la creación de una orden con el catálogo disponible (`200`), detiene solo `catalog-service`, comprueba el `503` y, finalmente, inicia el catálogo y comprueba la recuperación (`200`). El script vuelve a iniciar el catálogo si falla la aserción de indisponibilidad.
-
-## Lab 5: cambio incompatible del contrato
-
-1. En `catalog-service/main.py`, cambia el campo `price_per_hour` del espacio por `hourly_rate` en el modelo y en los datos de ejemplo.
-2. Reconstruye y levanta los servicios:
-
-   ```bash
-   docker compose up --build -d
-   ```
-
-3. Envía una orden. La respuesta esperada es HTTP `502` porque el catálogo ya no cumple el contrato que `orders-service` valida:
-
-   ```bash
-   curl -i -X POST "http://localhost:8002/orders?space_id=1&user_email=contract%40test.com&hours=2"
-   ```
-
-4. Restaura `price_per_hour` para volver a la versión funcional.
-5. Registra los resultados observados en [chaos-report.md](./chaos-report.md).
-
-## Herramientas de diagnóstico
-
-```bash
-docker compose logs -f
-docker compose ps
-docker compose exec orders-service sh
-docker network ls
-docker network inspect coworking_coworking-network
-docker compose exec orders-service python -c "import urllib.request; print(urllib.request.urlopen('http://catalog-service:8001/health').read().decode())"
-docker compose build --no-cache
-```
-
-La imagen `python:3.11-slim` no incluye necesariamente `bash` ni `ping`; por eso se usa `sh` y una solicitud HTTP con la biblioteca estándar para comprobar la conectividad entre contenedores.
-
-## Colección Postman
-
-Importa [coworking.postman_collection.json](./coworking.postman_collection.json) en Postman. La colección incluye healthchecks, consulta de espacios y creación/listado de órdenes; usa `catalog_url` y `orders_url` como variables de colección.
-# Microservicios

@@ -1,33 +1,30 @@
 name: coworking
 
 services:
-  catalog-service:
-    build:
-      context: ./catalog-service
+  # Emulador local gratuito de AWS (Lambda, API Gateway, EventBridge, SQS)
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack-coworking
     ports:
-      - "8001:8001"
+      - "4566:4566"
+      - "4510-4559:4510-4559"
+    environment:
+      - SERVICES=lambda,apigateway,events,sqs
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
       - coworking-network
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"
-      interval: 5s
-      timeout: 3s
-      retries: 5
 
+  # Servicio de órdenes en FastAPI
   orders-service:
     build:
       context: ./orders-service
+    container_name: orders-service
     ports:
       - "8002:8002"
     environment:
-      CATALOG_SERVICE_URL: http://catalog-service:8001
-    depends_on:
-      catalog-service:
-        condition: service_healthy
+      - CATALOG_SERVICE_URL=http://localstack:4566
     networks:
       - coworking-network
 

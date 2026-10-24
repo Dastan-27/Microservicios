@@ -89,5 +89,26 @@ def list_orders() -> list[Order]:
     return orders
 
 
+SPACES_CACHE: dict = {}
+
+
+@app.post("/catalog-events")
+def handle_catalog_event(payload: dict) -> dict:
+    """Endpoint que recibe notificaciones de eventos desde lambda-consumer."""
+    space_data = payload.get("space_data", {})
+    space_id = space_data.get("space_id")
+    if space_id:
+        SPACES_CACHE[space_id] = space_data
+        print(f"[orders-service] Evento recibido: Espacio {space_id} actualizado con datos: {space_data}")
+    return {"status": "event_received", "space_id": space_id, "cached": SPACES_CACHE.get(space_id)}
+
+
+@app.get("/spaces-cache")
+def get_spaces_cache() -> dict:
+    """Consulta los espacios sincronizados por eventos."""
+    return SPACES_CACHE
+
+
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=True)
