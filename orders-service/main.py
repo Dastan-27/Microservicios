@@ -29,7 +29,9 @@ app = FastAPI(title="Coworking Orders Service", version="1.0.0")
 CATALOG_SERVICE_URL = os.getenv(
     "CATALOG_SERVICE_URL", "http://localhost:8001"
 ).rstrip("/")
-CATALOG_TIMEOUT_SECONDS = 2.0
+if not CATALOG_SERVICE_URL.startswith(("http://", "https://")):
+    CATALOG_SERVICE_URL = f"https://{CATALOG_SERVICE_URL}"
+CATALOG_TIMEOUT_SECONDS = float(os.getenv("CATALOG_TIMEOUT_SECONDS", "2.0"))
 orders: list[Order] = []
 
 
