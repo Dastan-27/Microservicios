@@ -20,6 +20,10 @@ env/
 .env.*
 !.env.example
 
+# SAM CLI build artifacts (generated, should not be committed)
+.aws-sam/
+samconfig.toml
+
 # OS generated files
 .DS_Store
 Thumbs.db
