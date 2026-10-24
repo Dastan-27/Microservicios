@@ -20,8 +20,8 @@ ORDERS_SERVICE_URL = os.environ.get(
 ORDERS_TIMEOUT_SECONDS = float(os.environ.get("ORDERS_TIMEOUT_SECONDS", "3.0"))
 
 app = FastAPI(
-    title="Consumer Service (LAB 7)",
-    description="Recibe eventos SpaceChanged y notifica a orders-service. Simula Lambda + SQS en local.",
+    title="Servicio Consumidor de Eventos (LAB 7)",
+    description="Recibe eventos **SpaceChanged** desde el catálogo y notifica al orders-service. Simula el comportamiento de Lambda + SQS en modo local.",
     version="1.0.0",
 )
 
@@ -43,9 +43,9 @@ class CatalogEvent(BaseModel):
 # HEALTH CHECK
 # ---------------------------------------------------------------------------
 
-@app.get("/health", tags=["Health"])
+@app.get("/health", tags=["Salud"], summary="Verificar estado del servicio")
 def health() -> dict:
-    """Verifica que el servicio está corriendo."""
+    """Devuelve el estado actual del servicio. Úsalo para confirmar que está activo."""
     return {"status": "ok", "service": "consumer-service", "port": 8003}
 
 
@@ -53,17 +53,19 @@ def health() -> dict:
 # EVENTS ENDPOINTS
 # ---------------------------------------------------------------------------
 
-@app.get("/events", tags=["Events"])
+@app.get("/events", tags=["Eventos"], summary="Listar eventos recibidos")
 def list_events() -> list[dict]:
-    """Lista todos los eventos SpaceChanged recibidos y procesados."""
+    """Devuelve el historial de todos los eventos SpaceChanged recibidos y procesados por este servicio."""
     return events_log
 
 
-@app.post("/events", tags=["Events"])
+@app.post("/events", tags=["Eventos"], summary="Recibir un evento SpaceChanged")
 async def receive_event(payload: dict) -> dict:
     """
-    Recibe un evento SpaceChanged desde catalog-service.
-    Lo registra en el historial y lo reenvía a orders-service.
+    Endpoint que recibe eventos **SpaceChanged** publicados por el catalog-service (LAB 6).
+
+    Registra el evento en el historial y lo reenvía automáticamente al orders-service
+    para mantener su caché de espacios sincronizada.
     """
     source = payload.get("source", "unknown")
     detail_type = payload.get("detail-type", "SpaceChanged")
@@ -116,11 +118,11 @@ async def receive_event(payload: dict) -> dict:
     }
 
 
-@app.delete("/events", tags=["Events"])
+@app.delete("/events", tags=["Eventos"], summary="Limpiar historial de eventos")
 def clear_events() -> dict:
-    """Limpia el historial de eventos (útil para pruebas)."""
+    """Elimina todos los eventos del historial. Útil para reiniciar pruebas desde cero."""
     events_log.clear()
-    return {"status": "cleared", "message": "Historial de eventos limpiado"}
+    return {"status": "limpiado", "message": "Historial de eventos eliminado correctamente"}
 
 
 if __name__ == "__main__":

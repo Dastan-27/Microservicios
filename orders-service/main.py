@@ -25,7 +25,11 @@ class Order(BaseModel):
     total_price: float
 
 
-app = FastAPI(title="Coworking Orders Service", version="1.0.0")
+app = FastAPI(
+    title="Servicio de Órdenes de Coworking",
+    description="Gestiona reservas de espacios de coworking. Recibe eventos de disponibilidad desde el consumer-service y mantiene un caché de espacios actualizado.",
+    version="1.0.0",
+)
 CATALOG_SERVICE_URL = os.getenv(
     "CATALOG_SERVICE_URL", "http://localhost:8001"
 ).rstrip("/")
@@ -35,17 +39,19 @@ CATALOG_TIMEOUT_SECONDS = float(os.getenv("CATALOG_TIMEOUT_SECONDS", "2.0"))
 orders: list[Order] = []
 
 
-@app.get("/health")
+@app.get("/health", tags=["Salud"], summary="Verificar estado del servicio")
 def health() -> dict[str, str]:
+    """Devuelve el estado actual del servicio."""
     return {"status": "ok", "service": "orders-service"}
 
 
-@app.post("/orders", response_model=Order)
+@app.post("/orders", response_model=Order, tags=["Reservas"], summary="Crear una nueva reserva")
 async def create_order(
-    space_id: int = Query(gt=0),
-    user_email: str = Query(min_length=3),
-    hours: int = Query(gt=0),
+    space_id: int = Query(gt=0, description="ID del espacio a reservar"),
+    user_email: str = Query(min_length=3, description="Correo del usuario"),
+    hours: int = Query(gt=0, description="Número de horas a reservar"),
 ) -> Order:
+    """Crea una nueva reserva para un espacio de coworking consultando su precio al catalog-service."""
     try:
         async with httpx.AsyncClient(timeout=CATALOG_TIMEOUT_SECONDS) as client:
             response = await client.get(
@@ -84,29 +90,30 @@ async def create_order(
     return order
 
 
-@app.get("/orders", response_model=list[Order])
+@app.get("/orders", response_model=list[Order], tags=["Reservas"], summary="Listar todas las reservas")
 def list_orders() -> list[Order]:
+    """Devuelve la lista de todas las reservas realizadas en esta sesión."""
     return orders
 
 
 SPACES_CACHE: dict = {}
 
 
-@app.post("/catalog-events")
+@app.post("/catalog-events", tags=["Eventos"], summary="Recibir evento de disponibilidad")
 async def handle_catalog_event(request: Request) -> dict:
-    """Endpoint que recibe notificaciones de eventos desde lambda-consumer."""
+    """Recibe notificaciones de cambio de disponibilidad desde el consumer-service (LAB 7) y actualiza el caché interno de espacios."""
     payload = await request.json()
     space_data = payload.get("space_data", {})
     space_id = space_data.get("space_id")
     if space_id:
         SPACES_CACHE[space_id] = space_data
         print(f"[orders-service] Evento recibido: Espacio {space_id} actualizado → {space_data}")
-    return {"status": "event_received", "space_id": space_id, "cached": SPACES_CACHE.get(space_id)}
+    return {"status": "evento_recibido", "space_id": space_id, "en_cache": SPACES_CACHE.get(space_id)}
 
 
-@app.get("/spaces-cache")
+@app.get("/spaces-cache", tags=["Eventos"], summary="Ver caché de espacios sincronizados")
 def get_spaces_cache() -> dict:
-    """Consulta los espacios sincronizados por eventos."""
+    """Muestra el caché de espacios actualizado por eventos SpaceChanged. Cada entrada corresponde a un espacio cuya disponibilidad fue modificada."""
     return SPACES_CACHE
 
 

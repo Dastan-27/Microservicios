@@ -20,8 +20,8 @@ CONSUMER_SERVICE_URL = os.environ.get(
 CATALOG_TIMEOUT_SECONDS = float(os.environ.get("CATALOG_TIMEOUT_SECONDS", "3.0"))
 
 app = FastAPI(
-    title="Catalog Service (LAB 6)",
-    description="Gestiona espacios de coworking y publica eventos SpaceChanged al consumer-service.",
+    title="Servicio de Catálogo (LAB 6)",
+    description="Gestiona espacios de coworking y publica eventos **SpaceChanged** al consumer-service (LAB 7) cuando cambia la disponibilidad.",
     version="1.0.0",
 )
 
@@ -33,6 +33,13 @@ SPACES: dict[int, dict] = {
 }
 
 
+class SpaceCreate(BaseModel):
+    name: str
+    city: str
+    capacity: int
+    price_per_hour: float
+
+
 class AvailabilityUpdate(BaseModel):
     capacity: int
     price_per_hour: float | None = None
@@ -42,9 +49,9 @@ class AvailabilityUpdate(BaseModel):
 # HEALTH CHECK
 # ---------------------------------------------------------------------------
 
-@app.get("/health", tags=["Health"])
+@app.get("/health", tags=["Salud"], summary="Verificar estado del servicio")
 def health() -> dict:
-    """Verifica que el servicio está corriendo."""
+    """Devuelve el estado actual del servicio. Úsalo para confirmar que está activo."""
     return {"status": "ok", "service": "catalog-service", "port": 8001}
 
 
@@ -52,29 +59,87 @@ def health() -> dict:
 # CATALOG ENDPOINTS
 # ---------------------------------------------------------------------------
 
-@app.get("/catalog", tags=["Catalog"])
+@app.get("/catalog", tags=["Catálogo"], summary="Listar todos los espacios")
 def list_spaces() -> list[dict]:
-    """Devuelve todos los espacios de coworking disponibles."""
+    """Devuelve la lista completa de espacios de coworking registrados."""
     return list(SPACES.values())
 
 
-@app.get("/catalog/{space_id}", tags=["Catalog"])
+@app.post("/catalog", tags=["Catálogo"], summary="Crear un nuevo espacio", status_code=201)
+async def create_space(space_input: SpaceCreate) -> dict:
+    """
+    Crea y registra un nuevo espacio de coworking en el catálogo.
+
+    Genera un ID automático, almacena el espacio y emite un evento **SpaceChanged**
+    al consumer-service (LAB 7) para sincronizar orders-service.
+    """
+    new_id = max(SPACES.keys(), default=0) + 1
+    new_space = {
+        "id": new_id,
+        "name": space_input.name,
+        "city": space_input.city,
+        "capacity": space_input.capacity,
+        "price_per_hour": space_input.price_per_hour,
+    }
+    SPACES[new_id] = new_space
+
+    # Notificar al consumer-service
+    event_payload = {
+        "source": "coworking.catalog",
+        "detail-type": "SpaceChanged",
+        "detail": {
+            "space_id": new_id,
+            "name": new_space["name"],
+            "city": new_space["city"],
+            "new_capacity": new_space["capacity"],
+            "price_per_hour": new_space["price_per_hour"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+    consumer_status = "not_notified"
+    consumer_error = None
+    try:
+        async with httpx.AsyncClient(timeout=CATALOG_TIMEOUT_SECONDS) as client:
+            resp = await client.post(f"{CONSUMER_SERVICE_URL}/events", json=event_payload)
+            resp.raise_for_status()
+            consumer_status = "notified"
+    except httpx.RequestError as exc:
+        consumer_error = f"Consumer no disponible: {exc}"
+        consumer_status = "consumer_offline"
+    except httpx.HTTPStatusError as exc:
+        consumer_error = f"Consumer respondió {exc.response.status_code}: {exc.response.text}"
+        consumer_status = "consumer_error"
+
+    return {
+        "message": "Espacio creado exitosamente",
+        "space": new_space,
+        "event_published": event_payload["detail"],
+        "consumer_notification": consumer_status,
+        "consumer_error": consumer_error,
+    }
+
+
+@app.get("/catalog/{space_id}", tags=["Catálogo"], summary="Obtener un espacio por ID")
+@app.get("/spaces/{space_id}", tags=["Catálogo"], include_in_schema=False)
 def get_space(space_id: int = Path(gt=0)) -> dict:
-    """Devuelve un espacio por ID."""
+    """Devuelve los datos de un espacio específico según su ID. Retorna 404 si no existe."""
     space = SPACES.get(space_id)
     if not space:
         raise HTTPException(status_code=404, detail=f"Espacio con id {space_id} no encontrado")
     return space
 
 
-@app.post("/catalog/{space_id}/availability", tags=["Catalog"])
+@app.post("/catalog/{space_id}/availability", tags=["Catálogo"], summary="Actualizar disponibilidad de un espacio")
 async def update_availability(
     space_id: int = Path(gt=0),
     body: AvailabilityUpdate = Body(...),
 ) -> dict:
     """
-    Actualiza la disponibilidad de un espacio y publica el evento SpaceChanged
-    directamente al consumer-service (LAB 7) por HTTP.
+    Actualiza la capacidad (y opcionalmente el precio) de un espacio de coworking.
+
+    Al guardar el cambio, publica automáticamente un evento **SpaceChanged** al
+    consumer-service (LAB 7), que a su vez notifica al orders-service.
     """
     space = SPACES.get(space_id)
     if not space:
