@@ -9,7 +9,7 @@ services:
       - "4566:4566"
       - "4510-4559:4510-4559"
     environment:
-      - SERVICES=lambda,apigateway,events,sqs
+      - LOCALSTACK_AUTH_TOKEN=ls-tOwIKiwa-cIju-LecA-9701-VOrU71554634
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"

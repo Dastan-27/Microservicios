@@ -3,7 +3,7 @@ from json import JSONDecodeError
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, ValidationError
 
 
@@ -93,13 +93,14 @@ SPACES_CACHE: dict = {}
 
 
 @app.post("/catalog-events")
-def handle_catalog_event(payload: dict) -> dict:
+async def handle_catalog_event(request: Request) -> dict:
     """Endpoint que recibe notificaciones de eventos desde lambda-consumer."""
+    payload = await request.json()
     space_data = payload.get("space_data", {})
     space_id = space_data.get("space_id")
     if space_id:
         SPACES_CACHE[space_id] = space_data
-        print(f"[orders-service] Evento recibido: Espacio {space_id} actualizado con datos: {space_data}")
+        print(f"[orders-service] Evento recibido: Espacio {space_id} actualizado → {space_data}")
     return {"status": "event_received", "space_id": space_id, "cached": SPACES_CACHE.get(space_id)}
 
 
