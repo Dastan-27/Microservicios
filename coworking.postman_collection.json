@@ -1,0 +1,94 @@
+{
+  "info": {
+    "_postman_id": "d1ec934a-f494-4a13-a0ab-8f8a25b1db0f",
+    "name": "Coworking Workshop",
+    "description": "Pruebas HTTP para catalog-service y orders-service.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "catalog_url",
+      "value": "http://localhost:8001"
+    },
+    {
+      "key": "orders_url",
+      "value": "http://localhost:8002"
+    }
+  ],
+  "item": [
+    {
+      "name": "Catalog service",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{catalog_url}}/health"
+          }
+        },
+        {
+          "name": "List spaces",
+          "request": {
+            "method": "GET",
+            "url": "{{catalog_url}}/spaces"
+          }
+        },
+        {
+          "name": "Get space 1",
+          "request": {
+            "method": "GET",
+            "url": "{{catalog_url}}/spaces/1"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders service",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": "{{orders_url}}/health"
+          }
+        },
+        {
+          "name": "Create order",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{orders_url}}/orders?space_id=1&user_email=test%40example.com&hours=2",
+              "host": [
+                "{{orders_url}}"
+              ],
+              "path": [
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "space_id",
+                  "value": "1"
+                },
+                {
+                  "key": "user_email",
+                  "value": "test@example.com"
+                },
+                {
+                  "key": "hours",
+                  "value": "2"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "url": "{{orders_url}}/orders"
+          }
+        }
+      ]
+    }
+  ]
+}
